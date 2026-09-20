@@ -314,6 +314,77 @@ def generate_image(slug: str, prompt: str, out_path: Path, lang_code: str) -> No
                    "API ไม่คืนค่า usage - เช็คราคาจริงที่ platform.openai.com/usage")
 
 
+def _job_dir(slug: str) -> Path:
+    return OUTPUT_DIR / slug
+
+
+def _news_facts_path(slug: str) -> Path:
+    return _job_dir(slug) / "news_facts.txt"
+
+
+def _style_guide_path(slug: str) -> Path:
+    return _job_dir(slug) / "style_guide.txt"
+
+
+def save_job_news_facts(slug: str, news_facts: str) -> None:
+    """เก็บข้อเท็จจริงข่าวไว้ระดับ job (ไม่ใช่ต่อภาษา) ใช้ตอนกลับมาเพิ่มภาษาทีหลังโดยไม่ต้องพิมพ์ซ้ำ"""
+    _job_dir(slug).mkdir(parents=True, exist_ok=True)
+    _news_facts_path(slug).write_text(news_facts, encoding="utf-8")
+
+
+def load_job_news_facts(slug: str) -> str:
+    p = _news_facts_path(slug)
+    return p.read_text(encoding="utf-8") if p.exists() else ""
+
+
+def get_or_create_style_guide(slug: str) -> str:
+    """ใช้ style guide ที่เคยเจนไว้แล้วของข่าวนี้ถ้ามี (เก็บเป็นไฟล์ระดับ job) กันเรียก gpt-6-astra
+    vision ซ้ำทุกครั้งที่กลับมาเพิ่มภาษา - ประหยัดเงินและคุมสไตล์ภาพให้เหมือนเดิมทุกภาษา/ทุกรอบ"""
+    p = _style_guide_path(slug)
+    if p.exists():
+        return p.read_text(encoding="utf-8")
+    style_guide = get_style_guide(slug)
+    if style_guide:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(style_guide, encoding="utf-8")
+    return style_guide
+
+
+def list_jobs() -> list[dict]:
+    """สแกน output/ หาข่าวที่เคยทำไว้ทั้งหมด คืน slug, headline (preview), ภาษาที่ทำไปแล้ว,
+    เวลาแก้ไขล่าสุด (ใหม่สุดก่อน) ใช้แสดงในหน้า 'ข่าวเดิม' ของเว็บแอป ให้กลับมาเพิ่มภาษาทีหลังได้"""
+    jobs = []
+    if not OUTPUT_DIR.exists():
+        return jobs
+    for job_dir in sorted(OUTPUT_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+        if not job_dir.is_dir():
+            continue
+        slug = job_dir.name
+        news_facts = load_job_news_facts(slug)
+        done_langs = [
+            lang_code for lang_code in LANGUAGES
+            if (job_dir / lang_code / "script.json").exists()
+        ]
+        if not done_langs and not news_facts:
+            continue  # ไม่ใช่ job ของระบบนี้ (เช่นโฟลเดอร์เก่าก่อนอัปเดต multi-language) ข้ามไป
+        headline = ""
+        for lang_code in done_langs:
+            try:
+                script = json.loads((job_dir / lang_code / "script.json").read_text(encoding="utf-8"))
+                headline = script.get("headline", "")
+                break
+            except Exception:
+                continue
+        jobs.append({
+            "slug": slug,
+            "news_facts": news_facts,
+            "headline": headline,
+            "done_langs": done_langs,
+            "mtime": job_dir.stat().st_mtime,
+        })
+    return jobs
+
+
 def run_one_language(news_facts: str, slug: str, lang_code: str, style_guide: str) -> Path:
     """ผลิตคลิป 1 ภาษา (สคริปต์ + เสียง + รูป ครบชุด) ลง output/<slug>/<lang_code>/"""
     lang = LANGUAGES[lang_code]
@@ -351,9 +422,13 @@ def run_one_language(news_facts: str, slug: str, lang_code: str, style_guide: st
 
 def run(news_facts: str, slug: str, languages: list[str] = ("th",)) -> dict[str, Path]:
     """ผลิตข่าวเดียวกัน หลายภาษาพร้อมกัน (ต่างคลิปแยกกันต่อภาษา)
-    style_guide เจนครั้งเดียวใช้ร่วมกันทุกภาษา (ประหยัด token, ภาพดูเป็นแบรนด์เดียวกัน)"""
-    print("[0] วิเคราะห์ภาพอ้างอิงเพื่อทำ style guide (ใช้ร่วมกันทุกภาษา) ...")
-    style_guide = get_style_guide(slug)
+    style_guide เจนครั้งเดียวใช้ร่วมกันทุกภาษา (ประหยัด token, ภาพดูเป็นแบรนด์เดียวกัน)
+    เก็บ news_facts + style_guide ไว้ระดับ job (ไฟล์ .txt ใน output/<slug>/) ให้กลับมา
+    เพิ่มภาษาทีหลังได้โดยไม่ต้องพิมพ์ข่าวซ้ำ และไม่ต้องเรียก vision model ซ้ำ (ประหยัดเงิน)"""
+    save_job_news_facts(slug, news_facts)
+
+    print("[0] วิเคราะห์ภาพอ้างอิงเพื่อทำ style guide (ใช้ร่วมกันทุกภาษา + ทุกรอบที่กลับมาเพิ่มภาษา) ...")
+    style_guide = get_or_create_style_guide(slug)
     if style_guide:
         print(f"  style_guide: {style_guide[:80]}...")
 
