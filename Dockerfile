@@ -11,5 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# --server.headless true กันไม่ให้ Streamlit หยุดรอถาม email ตอน first-run (ไม่มี TTY ใน
+# container เลยค้างตลอดจนแอปไม่มีวันพร้อม - เป็นสาเหตุจริงที่ทำให้ Render ค้างที่หน้า "waking up")
 # Render กำหนด PORT ผ่าน env var มาให้เอง (ห้าม hardcode เป็น 8501)
-CMD streamlit run app.py --server.port ${PORT:-8501} --server.address 0.0.0.0
+ENV STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+CMD streamlit run app.py --server.port ${PORT:-8501} --server.address 0.0.0.0 --server.headless true
