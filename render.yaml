@@ -1,0 +1,28 @@
+# Render Blueprint - deploy ด้วยคลิกเดียวจาก repo นี้ (Render Dashboard -> New -> Blueprint)
+# ตั้งค่า secret env vars จริงในหน้า Render Dashboard หลัง deploy (ห้ามใส่ค่าจริงในไฟล์นี้/commit ขึ้น git)
+services:
+  - type: web
+    name: lao-khao-ai-pipeline
+    env: docker
+    plan: starter
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVEN_VOICE_ID_TH
+        sync: false
+      - key: ELEVEN_VOICE_ID_EN
+        sync: false
+      - key: ELEVEN_VOICE_ID_ZH
+        sync: false
+      - key: ELEVEN_VOICE_ID_JA
+        sync: false
+      - key: ELEVEN_VOICE_ID_RU
+        sync: false
+      - key: CLOUDINARY_URL
+        sync: false
+      - key: JSON2VIDEO_API_KEY
+        sync: false
+      - key: APP_PASSWORD
+        sync: false

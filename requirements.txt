@@ -1,0 +1,6 @@
+streamlit>=1.38
+openai>=1.40
+requests>=2.31
+pydub>=0.25
+cloudinary>=1.40
+pandas>=2.0
