@@ -26,9 +26,11 @@ Deploy ขึ้น Render: ดู Dockerfile + render.yaml ในโฟลเ�
 """
 
 import datetime
+import io
 import json as _json
 import os
 import re
+import zipfile
 from pathlib import Path
 
 import pandas as pd
@@ -83,6 +85,20 @@ def job_dirs_for_done_langs(slug: str, done_langs: list[str]) -> dict[str, str]:
     """คืน path ของภาษาที่ทำไปแล้วของ job นี้ (ใช้ตอนกลับมาเปิดงานเดิม เพื่อให้ QC/Step2/Step3
     เห็นภาษาที่เคยทำไว้ครบ ไม่ใช่แค่ภาษาที่เพิ่งเจนใหม่รอบนี้)"""
     return {lc: str(generate_content.OUTPUT_DIR / slug / lc) for lc in done_langs}
+
+
+def build_job_zip(slug: str) -> bytes:
+    """บีบอัดทุกไฟล์ของ job นี้ (output/<slug>/) เป็น zip เดียว - รวมทุกภาษา: script.json,
+    audio/*.mp3, images/*.png, audio_bg/*.mp3, final_912.mp4 (ถ้ามี), news_facts.txt,
+    style_guide.txt, cost_log.csv - ทำงานได้แม้ยังทำไม่ครบทุกขั้นตอน (มีแค่ไหนซิปแค่นั้น)"""
+    job_root = Path("output") / slug
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file_path in job_root.rglob("*"):
+            if file_path.is_file():
+                zf.write(file_path, arcname=str(file_path.relative_to(job_root.parent)))
+    buf.seek(0)
+    return buf.getvalue()
 
 
 LANG_CHOICES = {
@@ -255,6 +271,23 @@ if st.session_state["slug"]:
     st.divider()
     st.subheader(f"ผลลัพธ์งาน: `{slug}`")
 
+    zip_col1, zip_col2 = st.columns([1, 3])
+    with zip_col1:
+        if st.button("📦 เตรียมไฟล์ ZIP ทั้งงาน"):
+            with st.spinner("กำลังบีบอัดรูป/คลิป/เสียง/สคริปต์/ค่าใช้จ่ายทั้งหมดของงานนี้ ..."):
+                st.session_state["zip_bytes"] = build_job_zip(slug)
+                st.session_state["zip_slug"] = slug
+    with zip_col2:
+        if st.session_state.get("zip_slug") == slug and st.session_state.get("zip_bytes"):
+            st.download_button(
+                "⬇️ ดาวน์โหลด ZIP ทั้งงาน",
+                data=st.session_state["zip_bytes"],
+                file_name=f"{slug}.zip",
+                mime="application/zip",
+            )
+    st.caption("ZIP รวมทุกภาษาที่มีในงานนี้: script.json, เสียงพากย์, รูปทุก scene, เพลง/เอฟเฟกต์ "
+               "(ถ้าทำแล้ว), คลิปสุดท้าย (ถ้ารวมคลิปแล้ว), news_facts, style_guide และ cost_log.csv")
+
     for lang_code, job_dir_str in st.session_state["job_dirs"].items():
         job_dir = Path(job_dir_str)
         script_path = job_dir / "script.json"
@@ -262,8 +295,18 @@ if st.session_state["slug"]:
             continue
 
         script = _json.loads(script_path.read_text(encoding="utf-8"))
+        genre = script.get("genre", "")
+        topic = script.get("topic", "")
+        genre_tag = f" [{genre}" + (f" · {topic}" if topic else "") + "]" if genre else ""
 
-        with st.expander(f"🔍 QC ภาษา: {LANG_CHOICES.get(lang_code, lang_code)} — {script['headline']}", expanded=True):
+        with st.expander(
+            f"🔍 QC ภาษา: {LANG_CHOICES.get(lang_code, lang_code)} — {script['headline']}{genre_tag}",
+            expanded=True,
+        ):
+            if genre:
+                topic_note = f" (topic: {topic})" if topic else ""
+                st.caption(f"ประเภทข่าว+โทนโปสเตอร์ที่ AI เลือกเอง: **{genre}**{topic_note} — เช็คว่าตรงกับ"
+                           "เนื้อข่าวจริงและสีโปสเตอร์เข้ากันไหม (ถ้าไม่ตรง แก้ news_facts ให้ชัดเจนขึ้นแล้วลองใหม่)")
             st.caption("เช็คการสะกดคำในรูปให้ครบทุก scene ก่อนไปขั้นตอนถัดไป (โดยเฉพาะภาษาที่ไม่ใช่ละติน)")
             cols = st.columns(len(script["scenes"]) or 1)
             for i, scene in enumerate(script["scenes"], start=1):
