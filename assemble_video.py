@@ -26,6 +26,20 @@ import sys
 import time
 from pathlib import Path
 
+# ต้องเคลียร์ CLOUDINARY_URL ที่พิมพ์/วางผิดพลาด "ก่อน" import cloudinary เพราะไลบรารีนี้อ่านค่า
+# จาก env ตอน import ทันทีเอง (นอกเหนือการควบคุมของเรา) ถ้าค่าไม่ตรงรูปแบบจะ raise ValueError
+# ทำให้ทั้งแอปพังตั้งแต่ import แม้เราจะ lazy-check เองแล้วก็ตาม - เคสที่เจอบ่อย: copy ทั้งบรรทัด
+# "CLOUDINARY_URL=cloudinary://..." จาก Cloudinary Dashboard ไปวางในช่อง value ทำให้ prefix ซ้อนกัน
+_raw_cloudinary_url = os.environ.get("CLOUDINARY_URL", "").strip().strip('"').strip("'")
+if _raw_cloudinary_url:
+    _idx = _raw_cloudinary_url.find("cloudinary://")
+    if _idx > 0:
+        _raw_cloudinary_url = _raw_cloudinary_url[_idx:]  # ตัด prefix ที่เผลอติดมาออก
+    if _raw_cloudinary_url.startswith("cloudinary://"):
+        os.environ["CLOUDINARY_URL"] = _raw_cloudinary_url
+    else:
+        os.environ.pop("CLOUDINARY_URL", None)  # กู้ไม่ได้ - ปล่อยว่าง ให้ error ตอนใช้งานจริงแทน
+
 import cloudinary
 import cloudinary.uploader
 import requests
